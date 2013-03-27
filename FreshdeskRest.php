@@ -19,16 +19,26 @@ class FreshdeskRest {
     }
 
     /**
-     * This method will create a new article.  It will also create the categories and folders if they don't already exist.
-     * @param $category
-     * @param $folder
-     * @param $topic_name
-     * @param $topic_body
-     * @param $tags
-     * @param $status 1 = Draft 2 = Published
-     * @param $art_type 1 = draft
+     * When true, if you try to create an article with a category name or folder name that doesn't exist,
+     * it will be created.  Otherwise, it will just fail.
+     * @param $mode
      */
-    public function createArticle($category, $folder, $topic_name, $topic_body, $tags='', $status='1', $art_type = '1') {
+    public function setCreateStructureMode($mode) {
+        $this->createStructureMode($mode);
+    }
+
+    /**
+     * This method will create a new article.  It will also create the categories and folders if they don't already exist.
+     * @param $category String The top level category for this article
+     * @param $folder String Category Subfolder
+     * @param $topic_name String containing the title of the Article
+     * @param $topic_body String containing the article body, supports html.
+     * @param $tags String containing the tags for the article OPTIONAL - will set tag to "default" (can't remember if passing in an empty string works or not)
+     * @param $status 1 = Draft 2 = Published (optional, default value is 1)
+     * @param $art_type 1 = Permanent, 2 = Workaround (optional default value is 1)
+     * @return The raw response from the rest call.
+     */
+    public function createArticle($category, $folder, $topic_name, $topic_body, $tags='default', $status='1', $art_type = '1') {
         print "In Create Article\n";
         $categoryId = $this->getCategoryId( $category );
 
@@ -40,8 +50,6 @@ class FreshdeskRest {
             print "Unknown Category ID: $categoryId";
             return FALSE;
         }
-
-
 
         $folderId = $this->getFolderId( $category, $folder );
 
@@ -60,13 +68,13 @@ class FreshdeskRest {
 	<status>$status</status>
 	<art_type>$art_type</art_type>
 	<description>
-	$topic_body
+	<![CDATA[$topic_body]]>
 	</description>
 	<folder_id>$folderId</folder_id>  <!-- Mandatory-->
 </solution_article>
 SOLN;
-        print $payload;
-        return $this->restCall("/solution/categories/$categoryId/folders/$folderId/articles.xml?tags=default", POST, $payload);
+        //print "<br>ARTICLE PAYLOAD</br><pre>$payload</pre><br>";
+        return $this->restCall("/solution/categories/$categoryId/folders/$folderId/articles.xml?tags=default", "POST", $payload);
     }
 
     public function getCategoryId( $category ) {
@@ -80,7 +88,7 @@ SOLN;
             return FALSE;
         }
 
-        print "Category ID: " . $theId;
+        //print "Category ID: " . $theId;
         return $theId;
     }
 
@@ -89,7 +97,6 @@ SOLN;
     }
 
     public function createCategory( $category, $description = '' ) {
-
         $payload = <<<CAT
 <solution_category>
 	<name>$category</name>
@@ -97,9 +104,9 @@ SOLN;
 </solution_category>
 CAT;
 
-        $response = $this->restCall("/solution/categories.xml", "POST", $payload );
+        $this->restCall("/solution/categories.xml", "POST", $payload );
 
-        // Inefficient... but less code for me to write...
+        // TODO: this is inefficient, should parse the rest response instead from above instead
         return $this->getCategoryId($category);
     }
 
@@ -116,7 +123,7 @@ CAT;
 
         $xml = $this->restCall( "/solution/categories/$categoryId.xml", "GET");
 
-        print $xml;
+        //print $xml;
 
         $xml = simplexml_load_string($xml);
         $xpathResult = $xml->xpath('/solution-category/folders/solution-folder[name="' . $folder . '"]/id');
@@ -188,11 +195,11 @@ FOLDER;
 
         $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         // curl_close($http);
-        if( $http_status != 200 ) {
+        if( preg_match( '/2\d\d/', $http_status ) ) {
             print "ERROR: HTTP Status Code == " . $http_status . "\n";
         }
 
-       // print "\n\nREST RESPONSE: " . $returndata . "\n\n";
+        // print "\n\nREST RESPONSE: " . $returndata . "\n\n";
 
         return $returndata;
     }

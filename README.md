@@ -19,15 +19,11 @@ Originally wrote this tool to import all of my KB articles from SugarCRM Knowled
 
 ```
 <?php
-/**
- * How to use the freshdesk api.
- */
+
 require_once("FreshdeskRest.php");
 $fd = new FreshdeskRest("yoursubdomain.freshdesk.com", "your_username", "your_password");
-$fd-
+$fd->setCreateStructureMode('true'); // will create categories and folders if they don't exist.
 
-$fd->getCategoryId("Alert Beacon");
-$fd->getFolderId("Alert Beacon", "Installation");
 $fd->createArticle("TEST CATEGORY", "Test_Folder", "Test Article Title", "The <u>HTML</u> of your body goes here!<P>Paragraph 2</P>");
 ```
 

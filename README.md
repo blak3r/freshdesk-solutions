@@ -1,7 +1,10 @@
 # FreshDesk.com Solutions API Wrapper
-Provides methods that are useful for creating articles.  Originally wrote this tool to import all of my KB articles from SugarCRM Knowledgebase.
-
+Provides methods that are useful for creating articles.
 1. Facilitates creating api's by allowing the use of strings instead of looking up category ids / folder ids.
+2. When creating an article which has a folder name or category name that doesn't exist, they can be created automatically.
+
+Originally wrote this tool to import all of my KB articles from SugarCRM Knowledgebase.
+
 
 
 ## Ways To Improve

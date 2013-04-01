@@ -28,7 +28,9 @@ class FreshdeskRest {
     }
 
     /**
-     * This method will create a new article.  It will also create the categories and folders if they don't already exist.
+     * This method will create or update an article depending on whether one already exists of the same name in the category/folder
+     * name provided.  If createStructureMode has been set to true (the default) It will also create the categories and folders
+     * if they don't already exist.
      * @param $category String The top level category for this article
      * @param $folder String Category Subfolder
      * @param $topic_name String containing the title of the Article
@@ -38,7 +40,7 @@ class FreshdeskRest {
      * @param $art_type 1 = Permanent, 2 = Workaround (optional default value is 1)
      * @return The raw response from the rest call.
      */
-    public function createArticle($category, $folder, $topic_name, $topic_body, $tags='default', $status='1', $art_type = '1') {
+    public function createOrUpdateArticle($category, $folder, $topic_name, $topic_body, $tags='default', $status='1', $art_type = '1') {
         print "In Create Article\n";
         $categoryId = $this->getCategoryId( $category );
 
@@ -61,7 +63,6 @@ class FreshdeskRest {
             return FALSE;
         }
 
-
         $payload = <<<SOLN
 <solution_article>
 	<title>$topic_name</title>  <!-- Mandatory min >3 characters-->
@@ -73,11 +74,52 @@ class FreshdeskRest {
 	<folder_id>$folderId</folder_id>  <!-- Mandatory-->
 </solution_article>
 SOLN;
-        //print "<br>ARTICLE PAYLOAD</br><pre>$payload</pre><br>";
-        return $this->restCall("/solution/categories/$categoryId/folders/$folderId/articles.xml?tags=default", "POST", $payload);
+
+        $articleId = $this->getArticleIdUsingIds($categoryId, $folderId, $topic_name);
+        if( $articleId != FALSE && !empty($articleId) ) {
+            print "Article already exists (#$articleId)... Will Update instead.\n";
+            return $this->restCall("/solution/categories/$categoryId/folders/$folderId/articles/$articleId?tags=$tags", "PUT", $payload);
+        }
+        else {
+            //print "<br>ARTICLE PAYLOAD</br><pre>$payload</pre><br>";
+            return $this->restCall("/solution/categories/$categoryId/folders/$folderId/articles.xml?tags=$tags", "POST", $payload);
+        }
+    }
+
+    /**
+     * Returns the article ID, this method takes in the IDs for category and folder rather then the names.
+     * @param $categoryId
+     * @param $folderId
+     * @param $topic_name
+     * @return bool FALSE if it doesn't exist, the id otherwise.
+     */
+    public function getArticleIdUsingIds($categoryId, $folderId, $topic_name ) {
+        $xml = $this->restCall("/solution/categories/$categoryId/folders/$folderId.xml", "GET", '');
+
+        print "Article XML\n" . $xml;
+
+        $xml = simplexml_load_string($xml);
+        $xpathresult = $xml->xpath('/solution-folder/articles/solution-article[title="' . $topic_name . '"]/id');
+        list(,$theId) = each($xpathresult);
+
+
+        if( empty($theId) ) {
+            print "Article Not Found\n";
+            return FALSE;
+        }
+
+        print "Article ID: " . $theId;
+        return $theId;
+    }
+
+    public function getArticleId( $category, $folder, $topic_name ) {
+        $categoryId = $this->getCategoryId($category);
+        $folderId = $this->getFolderId($category,$folder);
+        return $this->getArticleIdUsingIds($categoryId, $folderId, $topic_name);
     }
 
     public function getCategoryId( $category ) {
+
         $xml = $this->restCall( "/solution/categories.xml", "GET");
 
         $xml = simplexml_load_string($xml);
@@ -110,6 +152,8 @@ CAT;
         return $this->getCategoryId($category);
     }
 
+    
+
     public function doesFolderExist( $category, $folder ) {
         return getFolderId($category, $folder) != FALSE;
     }
@@ -123,7 +167,9 @@ CAT;
 
         $xml = $this->restCall( "/solution/categories/$categoryId.xml", "GET");
 
+        //print "-----[ FIND FOLDER ID XML]----------------------\n";
         //print $xml;
+        //print "-----[ FIND FOLDER ^^^^ L]----------------------\n";
 
         $xml = simplexml_load_string($xml);
         $xpathResult = $xml->xpath('/solution-category/folders/solution-folder[name="' . $folder . '"]/id');
@@ -181,6 +227,13 @@ FOLDER;
             curl_setopt ($ch, CURLOPT_POST, true);
             curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
         }
+		else if( $method == "PUT" ) {
+			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "PUT" );
+			curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
+		}
+		else if( $method == "DELETE" ) {
+			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" );
+		}
         else {
             curl_setopt ($ch, CURLOPT_POST, false);
         }
@@ -195,7 +248,7 @@ FOLDER;
 
         $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         // curl_close($http);
-        if( preg_match( '/2\d\d/', $http_status ) ) {
+        if( !preg_match( '/2\d\d/', $http_status ) ) {
             print "ERROR: HTTP Status Code == " . $http_status . "\n";
         }
 

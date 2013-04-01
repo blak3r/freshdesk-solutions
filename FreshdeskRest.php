@@ -8,11 +8,22 @@
 
 class FreshdeskRest {
 
+    private $categoryIdCache = array();
+    private $folderIdCache = array();
+    //private $articleIdCache = array();
+
     private $domain = '', $username = '', $password = '';
     private $createStructureMode = true; // When true, if you try to create an article and the folder or category doesn't exist it'll create one automatically
     private $lastHttpStatusCode = 200;
 
-    function __construct($domain, $username, $password) {
+
+    /**
+     * Constructor
+     * @param $domain
+     * @param $username String Can be your username or it can be the API Key.
+     * @param $password String Optional if you use API Key.
+     */
+    function __construct($domain, $username, $password = 'X') {
         $this->domain = $domain;
         $this->password = $password;
         $this->username = $username;
@@ -38,7 +49,7 @@ class FreshdeskRest {
      * @param $tags String containing the tags for the article OPTIONAL - will set tag to "default" (can't remember if passing in an empty string works or not)
      * @param $status 1 = Draft 2 = Published (optional, default value is 1)
      * @param $art_type 1 = Permanent, 2 = Workaround (optional default value is 1)
-     * @return The raw response from the rest call.
+     * @return String The raw response from the rest call.
      */
     public function createOrUpdateArticle($category, $folder, $topic_name, $topic_body, $tags='default', $status='1', $art_type = '1') {
         print "In Create Article\n";
@@ -120,6 +131,10 @@ SOLN;
 
     public function getCategoryId( $category ) {
 
+        if( !empty($this->categoryIdCache[$category]) ) {
+            return $this->categoryIdCache[$category];
+        }
+
         $xml = $this->restCall( "/solution/categories.xml", "GET");
 
         $xml = simplexml_load_string($xml);
@@ -129,9 +144,33 @@ SOLN;
         if( empty($theId) ) {
             return FALSE;
         }
+        else {
+            print "Added '$category' to category cache: $theId\n";
+            $this->categoryIdCache[$category] = $theId; // add to cache
+        }
 
         //print "Category ID: " . $theId;
         return $theId;
+    }
+
+    /**
+     * @return array of each top level Category Name.
+     */
+    public function getCategoryNames() {
+
+        $xml = $this->restCall( "/solution/categories.xml", "GET");
+
+        $xml = simplexml_load_string($xml);
+        $xpathresult = $xml->xpath('solution-category/name');
+
+        $arr = array();
+        foreach( $xpathresult as $cat_name) {
+            $arr[] = $cat_name;
+        }
+
+        //print count($arr) . " categories found";
+
+        return $arr;
     }
 
     public function doesCategoryExist( $category ) {
@@ -148,17 +187,19 @@ CAT;
 
         $this->restCall("/solution/categories.xml", "POST", $payload );
 
-        // TODO: this is inefficient, should parse the rest response instead from above instead
+        // This is inefficient... could parse response... but this is way easier.
         return $this->getCategoryId($category);
     }
-
-    
 
     public function doesFolderExist( $category, $folder ) {
         return getFolderId($category, $folder) != FALSE;
     }
 
     public function getFolderId( $category, $folder ) {
+
+        if( !empty($this->folderIdCache["$category/$folder"]) ) {
+            return $this->folderIdCache["$category/$folder"];
+        }
 
         $categoryId = $this->getCategoryId( $category );
         if( $categoryId == FALSE ) {
@@ -178,6 +219,10 @@ CAT;
         if( empty($theId) ) {
             return FALSE;
         }
+        else {
+            print "Adding '$category/$folder' to folder cache\n";
+            $this->folderIdCache["$category/$folder"] = $theId;
+        }
 
         // print "Folder ID: " . $theId;
         return $theId;
@@ -185,7 +230,7 @@ CAT;
 
 
     /**
-     *
+     * Create a Folder in the specified Category
      * NOTE: doesn't handle visibility == 4
      * @param $category
      * @param $folder
@@ -196,7 +241,7 @@ CAT;
         $payload = <<<FOLDER
 <solution_folder>
 	<name>$folder</name>
-	<visibility>$visibility</visibility>		<!--- (Mandatory) -->
+	<visibility>$visibility</visibility>
 	<description>$folder_description</description>
 </solution_folder>
 FOLDER;
@@ -212,8 +257,8 @@ FOLDER;
 
     /**
      * @param $urlMinusDomain - should start with /... example /solutions/categories.xml
-     * @param $method - should be either GET or POST
-     * @param string $postData - only specified if $method == POST
+     * @param $method - should be either GET, POST, PUT (and theoretically DELETE but that's untested).
+     * @param string $postData - only specified if $method == POST or PUT
      * @return the raw response
      */
     private function restCall($urlMinusDomain, $method, $postData = '') {
@@ -232,7 +277,7 @@ FOLDER;
 			curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
 		}
 		else if( $method == "DELETE" ) {
-			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" );
+			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" ); // UNTESTED!
 		}
         else {
             curl_setopt ($ch, CURLOPT_POST, false);
@@ -249,7 +294,7 @@ FOLDER;
         $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         // curl_close($http);
         if( !preg_match( '/2\d\d/', $http_status ) ) {
-            print "ERROR: HTTP Status Code == " . $http_status . "\n";
+            print "ERROR: HTTP Status Code == " . $http_status . " (302 also isn't an error)\n";
         }
 
         // print "\n\nREST RESPONSE: " . $returndata . "\n\n";

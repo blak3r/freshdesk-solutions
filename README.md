@@ -8,8 +8,8 @@ Originally wrote this tool to import all of my KB articles from SugarCRM Knowled
 
 
 ## Ways To Improve
-1. Performance could be improved by caching category id's and folder id's that have already been looked up.
-2. Only GET and POST methods are implemented.  Currently there are no delete or update methods.
+1. Could improve performance by caching folder id's that have already been looked up.
+2. Haven't tried any DELETE methods...
 3. Error handling is ok, but could be improved.
 
 ## Usage
@@ -24,7 +24,7 @@ require_once("FreshdeskRest.php");
 $fd = new FreshdeskRest("yoursubdomain.freshdesk.com", "your_username", "your_password");
 $fd->setCreateStructureMode('true'); // will create categories and folders if they don't exist.
 
-$fd->createArticle("TEST CATEGORY", "Test_Folder", "Test Article Title", "The <u>HTML</u> of your body goes here!<P>Paragraph 2</P>");
+$fd->createOrUpdateArticle("TEST CATEGORY", "Test_Folder", "Test Article Title", "The <u>HTML</u> of your body goes here!<P>Paragraph 2</P>");
 ```
 
 ![gitimg](https://gitimg.com/blak3r/freshdesk-solutions/README/track)

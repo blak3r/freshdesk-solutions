@@ -8,13 +8,12 @@
 
 class FreshdeskRest {
 
-    private $categoryIdCache = array();
-    private $folderIdCache = array();
-    //private $articleIdCache = array();
-
     private $domain = '', $username = '', $password = '';
     private $createStructureMode = true; // When true, if you try to create an article and the folder or category doesn't exist it'll create one automatically
     private $lastHttpStatusCode = 200;
+    private $defaultFolderVisibility = '2'; // Defaults to "Logged In Users"
+    private $categoryIdCache = array();
+    private $folderIdCache = array();
 
 
     /**
@@ -39,6 +38,14 @@ class FreshdeskRest {
     }
 
     /**
+     * Sets the default visibility for folders that are created.
+     * @param $visibility String 1 = ALL, 2=Logged In Users, 3=Agents, 4=Select Companies
+     */
+    public function setDefaultFolderVisibility($visibility) {
+        $this->defaultFolderVisibility = $visibility;
+    }
+
+    /**
      * This method will create or update an article depending on whether one already exists of the same name in the category/folder
      * name provided.  If createStructureMode has been set to true (the default) It will also create the categories and folders
      * if they don't already exist.
@@ -46,7 +53,7 @@ class FreshdeskRest {
      * @param $folder String Category Subfolder
      * @param $topic_name String containing the title of the Article
      * @param $topic_body String containing the article body, supports html.
-     * @param $tags String containing the tags for the article OPTIONAL - will set tag to "default" (can't remember if passing in an empty string works or not)
+     * @param $tags String containing the tags for the article OPTIONAL - will set tag to "<categoryname>,<foldername>" (can't remember if passing in an empty string works or not)
      * @param $status 1 = Draft 2 = Published (optional, default value is 1)
      * @param $art_type 1 = Permanent, 2 = Workaround (optional default value is 1)
      * @return String The raw response from the rest call.
@@ -85,6 +92,10 @@ class FreshdeskRest {
 	<folder_id>$folderId</folder_id>  <!-- Mandatory-->
 </solution_article>
 SOLN;
+
+        if( $tags == "default") {
+            $tags = "$category,$folder";
+        }
 
         $articleId = $this->getArticleIdUsingIds($categoryId, $folderId, $topic_name);
         if( $articleId != FALSE && !empty($articleId) ) {
@@ -237,7 +248,12 @@ CAT;
      * @param $folder_description
      * @param string $visibility - 1 = All, 2 = Logged in Users, 3 = Agents, 4 = Select Companies [need to provide customer_ids for this option]
      */
-    public function createFolder($category, $folder, $folder_description = '', $visibility = '1') {
+    public function createFolder($category, $folder, $folder_description = '', $visibility = 'default') {
+
+        if( $visibility == "default") {
+            $visibility = $this->defaultFolderVisibility;
+        }
+
         $payload = <<<FOLDER
 <solution_folder>
 	<name>$folder</name>

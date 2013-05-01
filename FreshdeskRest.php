@@ -96,6 +96,7 @@ SOLN;
         if( $tags == "default") {
             $tags = "$category,$folder";
         }
+        $tags = urlencode($tags);
 
         $articleId = $this->getArticleIdUsingIds($categoryId, $folderId, $topic_name);
         if( $articleId != FALSE && !empty($articleId) ) {
@@ -270,14 +271,43 @@ FOLDER;
         $this->restCall("/solution/categories/$categoryId/folders.xml", "POST", $payload);
     }
 
+    // -----[ Forum Methods ]------------- //
+
+
+    public function monitorTopicById($categoryId, $forumId, $topicId )
+    {
+        print "THIS METHOD DOES NOT WORK YET";
+        return $this->restCall("/categories/$categoryId/forums/$forumId/topics/$topicId/monitorship.xml", "POST", '', true);
+    }
+
+    /**
+     * Useful for determining the top level category id... can't get this by looking at urls
+     * WARNING: must be agent to run this... trying to run as a "user" will redirect
+     * @return the
+     */
+    public function forumListCategories() {
+        return $this->restCall("/categories.xml", "GET");  // gets redirected to /support/discussions
+    }
+
+    public function forumListForums($categoryId) {
+        return $this->restCall("/categories/$categoryId.xml","GET");
+    }
+
+    public function forumListTopics($categoryId, $forumId) {
+        return $this->restCall("/categories/$categoryId/forums/$forumId.xml","GET");
+    }
+
+
+
 
     /**
      * @param $urlMinusDomain - should start with /... example /solutions/categories.xml
      * @param $method - should be either GET, POST, PUT (and theoretically DELETE but that's untested).
      * @param string $postData - only specified if $method == POST or PUT
+     * @param $debugMode {bool} optional - prints the request and response with headers
      * @return the raw response
      */
-    private function restCall($urlMinusDomain, $method, $postData = '') {
+    private function restCall($urlMinusDomain, $method, $postData = '',$debugMode=false) {
         $url = "https://{$this->domain}$urlMinusDomain";
 
         //print "REST URL: " . $url . "\n";
@@ -285,6 +315,9 @@ FOLDER;
         $ch = curl_init ($url);
 
         if( $method == "POST") {
+            if( empty($postData) ){
+                $header[] = "Content-length: 0"; // <-- seems to be unneccessary to specify this... curl does it automatically
+            }
             curl_setopt ($ch, CURLOPT_POST, true);
             curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
         }
@@ -301,11 +334,27 @@ FOLDER;
 
         curl_setopt($ch, CURLOPT_USERPWD, "{$this->username}:{$this->password}");
         curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
-        curl_setopt ($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-        curl_setopt ($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt ($ch, CURLOPT_SSL_VERIFYPEER, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+
+        if( $debugMode ) {
+            // CURLOPT_VERBOSE: TRUE to output verbose information. Writes output to STDERR,
+            // or the file specified using CURLOPT_STDERR.
+            curl_setopt($ch, CURLOPT_VERBOSE, true);
+            $verbose = fopen('php://temp', 'rw+');
+            curl_setopt($ch, CURLOPT_STDERR, $verbose);
+        }
+
         $returndata = curl_exec ($ch);
+
+        if( $debugMode ) {
+            !rewind($verbose);
+            $verboseLog = stream_get_contents($verbose);
+            print $verboseLog;
+        }
+
 
         $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         // curl_close($http);

@@ -4,6 +4,7 @@ Provides methods that are useful for creating articles.
 
 1. Facilitates creating solutions by allowing the use of strings instead of looking up category ids / folder ids / topics ids.
 2. When creating an article which has a folder name or category name that doesn't exist, they can be created automatically.
+3. Caches folder and category id's so they don't have to be looked up on subsequent operations.  But, this is abstracted from you.
 
 Originally wrote this tool to import all of my KB articles from SugarCRM Knowledgebase.
 

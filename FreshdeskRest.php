@@ -11,9 +11,11 @@ class FreshdeskRest {
     private $domain = '', $username = '', $password = '';
     private $createStructureMode = true; // When true, if you try to create an article and the folder or category doesn't exist it'll create one automatically
     private $lastHttpStatusCode = 200;
+    private $lastHttpResponseText = '';
     private $defaultFolderVisibility = '2'; // Defaults to "Logged In Users"
     private $categoryIdCache = array();
     private $folderIdCache = array();
+    private $userIdCache = array();
 
 
     /**
@@ -31,10 +33,10 @@ class FreshdeskRest {
     /**
      * When true, if you try to create an article with a category name or folder name that doesn't exist,
      * it will be created.  Otherwise, it will just fail.
-     * @param $mode
+     * @param bool $mode
      */
     public function setCreateStructureMode($mode) {
-        $this->createStructureMode($mode);
+        $this->createStructureMode = $mode;
     }
 
     /**
@@ -173,10 +175,10 @@ SOLN;
         $xml = $this->restCall( "/solution/categories.xml", "GET");
 
         $xml = simplexml_load_string($xml);
-        $xpathresult = $xml->xpath('solution-category/name');
+        $xpathResult = $xml->xpath('solution-category/name');
 
         $arr = array();
-        foreach( $xpathresult as $cat_name) {
+        foreach( $xpathResult as $cat_name) {
             $arr[] = $cat_name;
         }
 
@@ -186,7 +188,7 @@ SOLN;
     }
 
     public function doesCategoryExist( $category ) {
-        return getCategoryId($category) != FALSE;
+        return $this->getCategoryId($category) != FALSE;
     }
 
     public function createCategory( $category, $description = '' ) {
@@ -204,7 +206,7 @@ CAT;
     }
 
     public function doesFolderExist( $category, $folder ) {
-        return getFolderId($category, $folder) != FALSE;
+        return $this->getFolderId($category, $folder) != FALSE;
     }
 
     public function getFolderId( $category, $folder ) {
@@ -271,19 +273,25 @@ FOLDER;
         $this->restCall("/solution/categories/$categoryId/folders.xml", "POST", $payload);
     }
 
-    // -----[ Forum Methods ]------------- //
+    // --------------[ Forum Methods ]------------- //
 
 
+    /**
+     *
+     * @param $categoryId
+     * @param $forumId
+     * @param $topicId
+     * @return string - response which will be null... the HTTP Error Code for this method is also not 200.
+     */
     public function monitorTopicById($categoryId, $forumId, $topicId )
     {
-        print "THIS METHOD DOES NOT WORK YET";
         return $this->restCall("/categories/$categoryId/forums/$forumId/topics/$topicId/monitorship.xml", "POST", '', true);
     }
 
     /**
      * Useful for determining the top level category id... can't get this by looking at urls
      * WARNING: must be agent to run this... trying to run as a "user" will redirect
-     * @return the
+     * @return string... todo convert this over to json eventually..
      */
     public function forumListCategories() {
         return $this->restCall("/categories.xml", "GET");  // gets redirected to /support/discussions
@@ -298,7 +306,121 @@ FOLDER;
     }
 
 
+    // ------------[ User Related Methods ]-------------------//
 
+    /**
+     * There is no way to get a User's ID from an email address... You have to go through the users and check the email address
+     * field until there is a match.  So, this method just builds the cache of all users one time.
+     *
+     * The only time this would need to be called is if users are added or data is old... like people got added on the website.
+     *
+     * Developer FYI: this utilizes an undocumented (as of May 2013) 'page' get param to get all contacts.
+     */
+    public function initUserCache() {
+        $this->userIdCache = array();
+        $page = 1;
+
+        do {
+            $prevCacheSize = count($this->userIdCache);
+            $this->initUserCacheGetPage($page);
+            $page++;
+            print "Cache has: " . count($this->userIdCache) . " before it was $prevCacheSize\n";
+        }while( count($this->userIdCache) > $prevCacheSize );
+    }
+
+    private function initUserCacheGetPage($pageNum = 1, $additionalParams = "state=all" ) {
+        $xml = $this->restCall( "/contacts.xml?page=$pageNum&$additionalParams", "GET");
+        $xml = simplexml_load_string($xml);
+        $xpathresult = $xml->xpath('/users/user');
+        while(list( ,$node) = each($xpathresult) ) {
+            $email = (string) $node->email;
+            $id = (string) $node->id;
+            $this->userIdCache[$email] = $id;
+        }
+    }
+
+    private function initUserCacheIfNeeded() {
+        if( count($this->userIdCache) <= 0 ) {
+            print "Initializing cache";
+            $this->initUserCache();
+            print "Final Cache has: " . count($this->userIdCache);
+
+        }
+    }
+
+    /**
+     * @param $email
+     * @return mixed
+     */
+    public function getUserId($email)
+    {
+        $this->initUserCacheIfNeeded();
+        return $this->userIdCache[$email];
+    }
+
+    /**
+     * returns the user object as a php array for the provided email address
+     * @param $email
+     * @return mixed|null mixed is an php array
+     */
+    public function getUserByEmail($email) {
+        $this->initUserCacheIfNeeded();
+        return $this->getUserById( $this->userIdCache[$email] );
+    }
+
+
+    /**
+     * See also getUserByEmail()
+     * @param $userId
+     * @return mixed|null mixed type is a php array
+     */
+    public function getUserById($userId) {
+        // TODO throw an error if user isn't in the cache.
+        if( empty($userId) ) {
+            return NULL;
+        }
+
+        $json = $this->restCall("/contacts/$userId.json", "GET", null, true );
+        return json_decode($json,true)['user'];
+    }
+
+    /**
+     * Sets user-role = 5, this is the user-role that allows them to see all Tickets for the Company their associated with.
+     * @param $email the email address of the user.
+     * @param string $companyId only needs to be specified if user isn't already associated with that company.
+     * @return undefined.
+     */
+    public function setUserCanViewAllTicketsFromCompany($email,$companyId='') {
+        $userObj = $this->getUserByEmail($email);
+        return $this->setUserRoleHelper($userObj, 5, $companyId);
+    }
+
+    private function setUserRoleHelper($user, $userRole='5', $customerId='') {
+
+        $userId = $user['id'];
+        if( empty($customerId) ) {
+            $customerId = $user['customer_id'];
+        }
+
+        if( empty($customerId) ) {
+            print "ERROR: you must set a customer-id if you want to set the user role.";
+            var_dump($user);
+            return null;
+        }
+
+        $payload = <<<FOLDER
+<user>
+	<name>{$user['name']}</name>
+	<email>{$user['email']}</email>
+	<user-role>$userRole</user-role>
+	<customer-id>$customerId</customer-id>
+</user>
+FOLDER;
+
+        print $payload;
+
+        return $this->restCall("/contacts/$userId.xml", "PUT", $payload, true );
+    }
 
     /**
      * @param $urlMinusDomain - should start with /... example /solutions/categories.xml
@@ -339,6 +461,7 @@ FOLDER;
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
 
+        $verbose = ''; // set later...
         if( $debugMode ) {
             // CURLOPT_VERBOSE: TRUE to output verbose information. Writes output to STDERR,
             // or the file specified using CURLOPT_STDERR.
@@ -347,7 +470,7 @@ FOLDER;
             curl_setopt($ch, CURLOPT_STDERR, $verbose);
         }
 
-        $returndata = curl_exec ($ch);
+        $httpResponse = curl_exec ($ch);
 
         if( $debugMode ) {
             !rewind($verbose);
@@ -357,14 +480,31 @@ FOLDER;
 
 
         $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        // curl_close($http);
+        //curl_close($http);
         if( !preg_match( '/2\d\d/', $http_status ) ) {
             print "ERROR: HTTP Status Code == " . $http_status . " (302 also isn't an error)\n";
         }
 
-        // print "\n\nREST RESPONSE: " . $returndata . "\n\n";
+        // print "\n\nREST RESPONSE: " . $httpResponse . "\n\n";
+        $this->lastHttpResponseText = $httpResponse;
 
-        return $returndata;
+        return $httpResponse;
+    }
+
+    /**
+     * Returns the HTTP status code of the last call, useful for error checking.
+     * @return int
+     */
+    public function getLastHttpStatus() {
+        return $this->lastHttpStatusCode;
+    }
+
+    /**
+     * Returns the HTTP Response Text of the last curl call, useful for error checking.
+     * @return int
+     */
+    public function getLastHttpResponseText() {
+        return $this->lastHttpResponseText;
     }
 
 }

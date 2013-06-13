@@ -20,6 +20,8 @@ See this blog post: <http://www.blakerobertson.com/devlog/2013/6/13/generating-a
 In the samples folder you'll find a script which you can run from the command line and it'll create an avatar icon for each of your customers.
 The avatar will consist of the customers initials + a color bar which is common to the company.
 
+![Avatar Creation](http://www.blakerobertson.com/storage/post-images/FD_BeforeAfter.png?__SQUARESPACE_CACHEVERSION=1371112734051)
+
 
 ## Ways To Improve
 1. Error handling is ok, but could be improved.

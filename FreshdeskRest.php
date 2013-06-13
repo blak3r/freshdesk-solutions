@@ -8,6 +8,9 @@
 
 class FreshdeskRest {
 
+    const ROLE_VIEW_ALL_TICKETS  = 5;
+    const ROLE_VIEW_ONLY_THEIR_TICKETS  = 3;
+
     private $domain = '', $username = '', $password = '';
     private $createStructureMode = true; // When true, if you try to create an article and the folder or category doesn't exist it'll create one automatically
     private $lastHttpStatusCode = 200;
@@ -16,16 +19,21 @@ class FreshdeskRest {
     private $categoryIdCache = array();
     private $folderIdCache = array();
     private $userIdCache = array();
+    private $companyIdCache = array();
 
 
     /**
      * Constructor
-     * @param $domain
+     * @param $domain - yourname.freshdesk.com - but will also accept http://yourname.freshdesk.com/, etc.
      * @param $username String Can be your username or it can be the API Key.
      * @param $password String Optional if you use API Key.
      */
     function __construct($domain, $username, $password = 'X') {
-        $this->domain = $domain;
+
+        $strippedDomain = preg_replace('#^https?://#', '', $domain); // removes http:// or https://
+        $strippedDomain = preg_replace('#/#', '', $strippedDomain); // get trailing slash
+
+        $this->domain = $strippedDomain;
         $this->password = $password;
         $this->username = $username;
     }
@@ -61,7 +69,7 @@ class FreshdeskRest {
      * @return String The raw response from the rest call.
      */
     public function createOrUpdateArticle($category, $folder, $topic_name, $topic_body, $tags='default', $status='1', $art_type = '1') {
-        print "In Create Article\n";
+        //print "In Create Article\n";
         $categoryId = $this->getCategoryId( $category );
 
         if( !$categoryId && $this->createStructureMode ) {
@@ -168,7 +176,7 @@ SOLN;
     }
 
     /**
-     * @return array of each top level Category Name.
+     * @return array of each all the top level Category Names.
      */
     public function getCategoryNames() {
 
@@ -234,7 +242,7 @@ CAT;
             return FALSE;
         }
         else {
-            print "Adding '$category/$folder' to folder cache\n";
+            //print "Adding '$category/$folder' to folder cache\n";
             $this->folderIdCache["$category/$folder"] = $theId;
         }
 
@@ -285,7 +293,7 @@ FOLDER;
      */
     public function monitorTopicById($categoryId, $forumId, $topicId )
     {
-        return $this->restCall("/categories/$categoryId/forums/$forumId/topics/$topicId/monitorship.xml", "POST", '', true);
+        return $this->restCall("/categories/$categoryId/forums/$forumId/topics/$topicId/monitorship.xml", "POST", '', false);
     }
 
     /**
@@ -309,10 +317,12 @@ FOLDER;
     // ------------[ User Related Methods ]-------------------//
 
     /**
-     * There is no way to get a User's ID from an email address... You have to go through the users and check the email address
-     * field until there is a match.  So, this method just builds the cache of all users one time.
+     * I creatd this originally... because there was no documented way to get a user from email address.
+     * Since I originally wrote this, I learned of a better way.  This is still an interesting approach if you
+     * neeed to do something performant, so i left it in the code base.  But, checkout getUserByEmailQuery.
      *
-     * The only time this would need to be called is if users are added or data is old... like people got added on the website.
+     * This method basically gets every single contact in your system... page by page and caches the ids in
+     * an array. The only time this would need to be called is if users are added or data is old... like people got added on the website.
      *
      * Developer FYI: this utilizes an undocumented (as of May 2013) 'page' get param to get all contacts.
      */
@@ -324,7 +334,7 @@ FOLDER;
             $prevCacheSize = count($this->userIdCache);
             $this->initUserCacheGetPage($page);
             $page++;
-            print "Cache has: " . count($this->userIdCache) . " before it was $prevCacheSize\n";
+            //print "Cache has: " . count($this->userIdCache) . " before it was $prevCacheSize\n";
         }while( count($this->userIdCache) > $prevCacheSize );
     }
 
@@ -341,9 +351,9 @@ FOLDER;
 
     private function initUserCacheIfNeeded() {
         if( count($this->userIdCache) <= 0 ) {
-            print "Initializing cache";
+            //print "Initializing cache";
             $this->initUserCache();
-            print "Final Cache has: " . count($this->userIdCache);
+            //print "Final Cache has: " . count($this->userIdCache);
 
         }
     }
@@ -352,7 +362,7 @@ FOLDER;
      * @param $email
      * @return mixed
      */
-    public function getUserId($email)
+    public function getUserIdUsingCache($email)
     {
         $this->initUserCacheIfNeeded();
         return $this->userIdCache[$email];
@@ -363,7 +373,7 @@ FOLDER;
      * @param $email
      * @return mixed|null mixed is an php array
      */
-    public function getUserByEmail($email) {
+    public function getUserByEmailUsingCache($email) {
         $this->initUserCacheIfNeeded();
         return $this->getUserById( $this->userIdCache[$email] );
     }
@@ -380,9 +390,47 @@ FOLDER;
             return NULL;
         }
 
-        $json = $this->restCall("/contacts/$userId.json", "GET", null, true );
-        return json_decode($json,true)['user'];
+        $json = $this->restCall("/contacts/$userId.json", "GET", null, false );
+        $arr = json_decode($json,true);
+        return $arr['user'];
     }
+
+
+    /**
+     * Takes in an email address and returns an array of user properties.
+     * For example you could do getUser($email)['id']
+     * @param $email
+     * @return mixed an array of all the elements, for example you could do $returnObj['phone'] to get the phone.
+     */
+    public function getUser($email) {
+        $json = $this->restCall( "/contacts.json?state=all&" . urlencode("query=email is $email"), "GET", null, false );
+        //print $json;
+        $decoded = json_decode($json,true);
+
+        return $decoded[0]['user'];
+    }
+
+    public function getUserId($email) {
+        $temp = $this->getUser($email);
+        return $temp['id'];
+    }
+
+    public function getUserRole($email) {
+        $temp =  $this->getUser($email);
+        return $temp['user_role'];
+    }
+
+    public function getUserName($email) {
+        $temp =  $this->getUser($email);
+        return $temp['name'];
+    }
+
+    public function getUserCustomerId($email) {
+        $temp =  $this->getUser($email);
+        return $temp['customer_id'];
+    }
+
+
 
     /**
      * Sets user-role = 5, this is the user-role that allows them to see all Tickets for the Company their associated with.
@@ -395,16 +443,16 @@ FOLDER;
         return $this->setUserRoleHelper($userObj, 5, $companyId);
     }
 
-    private function setUserRoleHelper($user, $userRole='5', $customerId='') {
+    private function setUserRoleHelper($user, $userRole='3', $customerId='') {
 
         $userId = $user['id'];
         if( empty($customerId) ) {
             $customerId = $user['customer_id'];
         }
 
-        if( empty($customerId) ) {
-            print "ERROR: you must set a customer-id if you want to set the user role.";
-            var_dump($user);
+        if( empty($customerId) && $userRole == '5' ) {
+            //print "ERROR: you must set a customer-id if you want to set the user role.";
+            //var_dump($user);
             return null;
         }
 
@@ -417,9 +465,214 @@ FOLDER;
 </user>
 FOLDER;
 
-        print $payload;
+        //print $payload;
 
-        return $this->restCall("/contacts/$userId.xml", "PUT", $payload, true );
+        return $this->restCall("/contacts/$userId.xml", "PUT", $payload, false );
+    }
+
+
+    /**
+     * Creates a user if they don't already exists... if they do exist it updates the roles.
+     * See also uploadImageForUser to set the avatar.
+     * @param $name
+     * @param $email
+     * @param string $customerId
+     * @param int $userRole
+     * @return null|the
+     */
+    public function createUser($name, $email,$customerId='', $userRole=FreshdeskRest::ROLE_VIEW_ONLY_THEIR_TICKETS) {
+
+        $checkIfExistsId = $this->getUserId($email);
+        if( !empty($checkIfExistsId) ) {
+            //print "\n\nUSER ALREADY EXISTS!, will call update instead\n";
+            $this->setUserRoleHelper($this->getUserById($checkIfExistsId), $userRole, $customerId);
+            return $checkIfExistsId;
+        }
+
+        if( $userRole == FreshdeskRest::ROLE_VIEW_ALL_TICKETS && empty($customerId) ) {
+            //print "ERROR: you must set a customer-id if you want to set the user role to 5.";
+            return null;
+        }
+
+        $payload = <<<FOLDER
+<user>
+	<name>$name</name>
+	<email>$email</email>
+	<user-role>$userRole</user-role>
+	<customer-id>$customerId</customer-id>
+</user>
+FOLDER;
+        //print $payload;
+
+        $json = $this->restCall("/contacts.json", "POST", $payload, false );
+        $decoded = json_decode($json,true);
+        $theId = $decoded['user']['id'];
+        return $theId;
+    }
+
+    /**
+     * Uploads an Image
+     *
+     * Developer FYI: This is non-documented at time of writing... uses form multipart submission
+     * @param $userId
+     * @param $imagePath
+     * @param bool $debugMode
+     * @return mixed
+     */
+    public function uploadImageForUser($userId, $imagePath, $debugMode=false) {
+        $urlMinusDomain = "/contacts/$userId.json";
+        $url = "https://{$this->domain}$urlMinusDomain";
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_USERPWD, "{$this->username}:{$this->password}");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0 );
+        curl_setopt($ch, CURLOPT_PROXY, '127.0.0.1:8888'); // Use with Fiddler to debug
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT" );
+
+        $post = array(
+//            "user[name]" => $name,
+//            "user[email]" => $email,
+            "user[avatar_attributes[content]]"=>"@$imagePath;type=image/png",  // Note: tested with jpg and it works...
+        );
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+
+        $verbose = ''; // set later...
+        if( $debugMode ) {
+            curl_setopt($ch, CURLOPT_VERBOSE, true);
+            $verbose = fopen('php://temp', 'rw+');
+            curl_setopt($ch, CURLOPT_STDERR, $verbose);
+        }
+
+        $httpResponse = curl_exec ($ch);
+
+        if( $debugMode ) {
+            !rewind($verbose);
+            $verboseLog = stream_get_contents($verbose);
+            print $verboseLog;
+        }
+
+        return $httpResponse;
+    }
+
+    /**
+     * Creates a company, see also CreateCompanyIfDoesntExist
+     * @param $name
+     * @return the id of the company created.
+     */
+    public function createCompany($name) {
+
+        $payload = <<<FOLDER
+<customer>
+  <name>$name</name>
+</customer>
+FOLDER;
+        try {
+            $json = $this->restCall("/customers.json", "POST", $payload, false );
+            $decoded = json_decode($json,true);
+            $theId = $decoded['customer']['id'];
+            $this->companyIdCache[$name] = $theId; // Adds the new company
+        }
+        catch(Exception $ex) {
+            // Woops something went wrong!
+            $theId = NULL;
+        }
+        return $theId;
+
+    }
+
+    /**
+     * Creates a new
+     * @param $name
+     * @return mixed|the
+     */
+    public function createCompanyIfDoesntExist($name) {
+        $theId = $this->getCompanyId($name);
+        if( empty($theId) ) {
+            $theId = $this->createCompany($name);
+        }
+        return $theId;
+    }
+
+    /**
+     * At the time of writing there is no way to see if a company exists by searching for their name.
+     * You have to iterate through all of them until you find a match!
+     *
+     * This method basically gets every single customer in your system... page by page and caches the ids in
+     * an array. The only time this would need to be called is if users are added or data is old... like people got added on the website.
+     *
+     * Developer FYI: this utilizes an undocumented (as of May 2013) 'page' get param to get all companies.
+     */
+    public function initCompanyCache() {
+        $this->companyIdCache = array();
+        $page = 1;
+
+        do {
+            $prevCacheSize = count($this->companyIdCache);
+            $this->initCompanyCacheGetPage($page);
+            $page++;
+            //print "Cache has: " . count($this->companyIdCache) . " before it was $prevCacheSize\n";
+        }while( count($this->companyIdCache) > $prevCacheSize );
+    }
+
+    private function initCompanyCacheGetPage($pageNum = 1, $additionalParams = "state=all" ) {
+        $xml = $this->restCall( "/customers.xml?page=$pageNum&$additionalParams", "GET");
+        $xml = simplexml_load_string($xml);
+        $xpathresult = $xml->xpath('/customers/customer');
+        while(list( ,$node) = each($xpathresult) ) {
+            $name = (string) $node->name;
+            $id = (string) $node->id;
+            $this->companyIdCache[$name] = $id;
+        }
+    }
+
+    private function initCompanyCacheIfNeeded() {
+        if( count($this->companyIdCache) <= 0 ) {
+            $this->initCompanyCache();
+            //print "Final Cache has: " . count($this->companyIdCache);
+        }
+    }
+
+    /**
+     * @param $name - company name
+     * @return mixed
+     */
+    public function getCompanyId($name) {
+        $this->initCompanyCacheIfNeeded();
+        return $this->companyIdCache[$name];
+    }
+
+    /**
+     * Get the company name from an ID
+     * @param $id
+     * @return mixed (returns boolean FALSE if not found)... otheriwse returns the name
+     */
+    public function getCompanyName($id) {
+        $this->initCompanyCacheIfNeeded();
+        return array_search( $id, $this->getCompanyCache() );
+    }
+
+    public function getCompany($name) {
+        $id = $this->getCompanyId($name);
+        $json = $this->restCall("/customers/$id.json", "GET", null, false );
+        $decoded = json_decode($json,true);
+        return $decoded['customer'];
+    }
+
+    public function deleteCompany($name) {
+        $id = $this->getCompanyId($name);
+        $this->restCall("/customers/$id.json", "DELETE", null, false );
+        unset($this->companyIdCache[ $name ]);
+    }
+
+    public function getCompanyCache() {
+        return $this->companyIdCache;
+    }
+
+    public function getUserCache() {
+        return $this->userIdCache;
     }
 
     /**
@@ -443,17 +696,18 @@ FOLDER;
             curl_setopt ($ch, CURLOPT_POST, true);
             curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
         }
-		else if( $method == "PUT" ) {
-			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "PUT" );
-			curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
-		}
-		else if( $method == "DELETE" ) {
-			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" ); // UNTESTED!
-		}
+        else if( $method == "PUT" ) {
+            curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "PUT" );
+            curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
+        }
+        else if( $method == "DELETE" ) {
+            curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" ); // UNTESTED!
+        }
         else {
             curl_setopt ($ch, CURLOPT_POST, false);
         }
 
+        curl_setopt($ch, CURLOPT_PROXY, '127.0.0.1:8888'); // Use with Fiddler to debug
         curl_setopt($ch, CURLOPT_USERPWD, "{$this->username}:{$this->password}");
         curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -482,7 +736,7 @@ FOLDER;
         $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         //curl_close($http);
         if( !preg_match( '/2\d\d/', $http_status ) ) {
-            print "ERROR: HTTP Status Code == " . $http_status . " (302 also isn't an error)\n";
+            //print "ERROR: HTTP Status Code == " . $http_status . " (302 also isn't an error)\n";
         }
 
         // print "\n\nREST RESPONSE: " . $httpResponse . "\n\n";
@@ -506,5 +760,4 @@ FOLDER;
     public function getLastHttpResponseText() {
         return $this->lastHttpResponseText;
     }
-
 }

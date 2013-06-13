@@ -1,6 +1,7 @@
 <?php
 /**
- * Implements FreshDesk API methods for Solutions
+ * Implements FreshDesk API methods in PHP.
+ * See README.md
  * User: blake
  * Date: 3/27/13
  * Time: 1:17 AM
@@ -8,8 +9,15 @@
 
 class FreshdeskRest {
 
-    const ROLE_VIEW_ALL_TICKETS  = 5;
-    const ROLE_VIEW_ONLY_THEIR_TICKETS  = 3;
+    // User Role's
+    const ROLE_VIEWONLYTHEIRS  = 3;
+    const ROLE_VIEWCOMPANIES  = 5;
+
+    // Folder Visibility Constants
+    const VIS_ALL=1;
+    const VIS_LOGGEDIN = 2;
+    const VIS_AGENTS = 3;
+    const VIS_SELECTCOMPANIES = 4;
 
     private $domain = '', $username = '', $password = '';
     private $createStructureMode = true; // When true, if you try to create an article and the folder or category doesn't exist it'll create one automatically
@@ -20,7 +28,7 @@ class FreshdeskRest {
     private $folderIdCache = array();
     private $userIdCache = array();
     private $companyIdCache = array();
-
+    private $proxyServer = "";
 
     /**
      * Constructor
@@ -129,7 +137,7 @@ SOLN;
     public function getArticleIdUsingIds($categoryId, $folderId, $topic_name ) {
         $xml = $this->restCall("/solution/categories/$categoryId/folders/$folderId.xml", "GET", '');
 
-        print "Article XML\n" . $xml;
+        //print "Article XML\n" . $xml;
 
         $xml = simplexml_load_string($xml);
         $xpathresult = $xml->xpath('/solution-folder/articles/solution-article[title="' . $topic_name . '"]/id');
@@ -141,7 +149,6 @@ SOLN;
             return FALSE;
         }
 
-        print "Article ID: " . $theId;
         return $theId;
     }
 
@@ -199,13 +206,19 @@ SOLN;
         return $this->getCategoryId($category) != FALSE;
     }
 
-    public function createCategory( $category, $description = '' ) {
-        $payload = <<<CAT
-<solution_category>
-	<name>$category</name>
-	<description>$description</description>
-</solution_category>
-CAT;
+    public function createCategory( $category, $description = '', $optParams=array() ) {
+//        $payload = <<<CAT
+//<solution_category>
+//	<name>$category</name>
+//	<description>$description</description>
+//</solution_category>
+//CAT;
+        $reqParams = array(
+            "name" => $category,
+            "description" => $description
+        );
+
+        $payload = $this->merge_and_xml_encode("solution_category", $reqParams, $optParams);
 
         $this->restCall("/solution/categories.xml", "POST", $payload );
 
@@ -317,9 +330,9 @@ FOLDER;
     // ------------[ User Related Methods ]-------------------//
 
     /**
-     * I creatd this originally... because there was no documented way to get a user from email address.
+     * I created this originally... because there was no documented way to get a user from email address.
      * Since I originally wrote this, I learned of a better way.  This is still an interesting approach if you
-     * neeed to do something performant, so i left it in the code base.  But, checkout getUserByEmailQuery.
+     * need to do something performant, so i left it in the code base.  But, checkout getUserByEmailQuery.
      *
      * This method basically gets every single contact in your system... page by page and caches the ids in
      * an array. The only time this would need to be called is if users are added or data is old... like people got added on the website.
@@ -473,14 +486,15 @@ FOLDER;
 
     /**
      * Creates a user if they don't already exists... if they do exist it updates the roles.
-     * See also uploadImageForUser to set the avatar.
+     * See also uploadAvatarForUser to set the avatar.
      * @param $name
      * @param $email
      * @param string $customerId
      * @param int $userRole
-     * @return null|the
+     * @param array $optParams an associative php array, use this if you want to specify the other attributes like job_title, description, etc.
+     * @return the user id of the object created or null
      */
-    public function createUser($name, $email,$customerId='', $userRole=FreshdeskRest::ROLE_VIEW_ONLY_THEIR_TICKETS) {
+    public function createUser($name, $email,$customerId='', $userRole=FreshdeskRest::ROLE_VIEWONLYTHEIRS, $optParams=array() ) {
 
         $checkIfExistsId = $this->getUserId($email);
         if( !empty($checkIfExistsId) ) {
@@ -489,37 +503,42 @@ FOLDER;
             return $checkIfExistsId;
         }
 
-        if( $userRole == FreshdeskRest::ROLE_VIEW_ALL_TICKETS && empty($customerId) ) {
+        if( $userRole == FreshdeskRest::ROLE_VIEWCOMPANIES && empty($customerId) ) {
             //print "ERROR: you must set a customer-id if you want to set the user role to 5.";
             return null;
         }
 
-        $payload = <<<FOLDER
-<user>
-	<name>$name</name>
-	<email>$email</email>
-	<user-role>$userRole</user-role>
-	<customer-id>$customerId</customer-id>
-</user>
-FOLDER;
-        //print $payload;
+        $reqParams = array (
+            "name" => $name,
+            "email" => $email,
+            "user-role" => $userRole,
+            "customer-id" => $customerId
+        );
+        $payload = $this->merge_and_xml_encode("user", $reqParams,$optParams);
+        print "\n\njson payload... " . $payload . "\n";
 
-        $json = $this->restCall("/contacts.json", "POST", $payload, false );
+        $json = $this->restCall("/contacts.json", "POST", $payload, false);
         $decoded = json_decode($json,true);
         $theId = $decoded['user']['id'];
         return $theId;
     }
 
     /**
-     * Uploads an Image
+     * Uploads an Image.
      *
      * Developer FYI: This is non-documented at time of writing... uses form multipart submission
-     * @param $userId
+     * Note: The reason for customer_id and user_role being params is they have to be set
+     *       or else they'll get cleared on save. (June 10, 2013)
+     * @param $user is an array like the one your get from getUser(..), it MUST have an id, name, customer_id, and user_role set.
      * @param $imagePath
      * @param bool $debugMode
      * @return mixed
      */
-    public function uploadImageForUser($userId, $imagePath, $debugMode=false) {
+    public function uploadAvatarForUser($user, $imagePath, $debugMode=false) {
+        $userId = $user['id'];
+        $userRole = $user['user_role'];
+        $companyId = $user['customer_id'];
+
         $urlMinusDomain = "/contacts/$userId.json";
         $url = "https://{$this->domain}$urlMinusDomain";
 
@@ -529,15 +548,19 @@ FOLDER;
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0 );
-        curl_setopt($ch, CURLOPT_PROXY, '127.0.0.1:8888'); // Use with Fiddler to debug
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT" );
 
         $post = array(
 //            "user[name]" => $name,
 //            "user[email]" => $email,
+            "user[customer_id]" => $companyId,
+            "user[user_role]" => $userRole,
             "user[avatar_attributes[content]]"=>"@$imagePath;type=image/png",  // Note: tested with jpg and it works...
         );
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        if( !empty($this->proxyServer) ) {
+            curl_setopt($ch, CURLOPT_PROXY, $this->proxyServer ); // Use with Fiddler to debug
+        }
 
         $verbose = ''; // set later...
         if( $debugMode ) {
@@ -559,16 +582,16 @@ FOLDER;
 
     /**
      * Creates a company, see also CreateCompanyIfDoesntExist
-     * @param $name
+     * @param string $name the company name
+     * @param array $optFields is an optional array in case you want to set other attributes besides name.
      * @return the id of the company created.
      */
-    public function createCompany($name) {
+    public function createCompany($name, $optFields=array()) {
+        $reqFields = array (
+            "name" => $name
+        );
 
-        $payload = <<<FOLDER
-<customer>
-  <name>$name</name>
-</customer>
-FOLDER;
+        $payload = $this->merge_and_xml_encode("customer", $reqFields, $optFields);
         try {
             $json = $this->restCall("/customers.json", "POST", $payload, false );
             $decoded = json_decode($json,true);
@@ -707,13 +730,16 @@ FOLDER;
             curl_setopt ($ch, CURLOPT_POST, false);
         }
 
-        curl_setopt($ch, CURLOPT_PROXY, '127.0.0.1:8888'); // Use with Fiddler to debug
         curl_setopt($ch, CURLOPT_USERPWD, "{$this->username}:{$this->password}");
         curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+
+        if( !empty($this->proxyServer) ) {
+            curl_setopt($ch, CURLOPT_PROXY, '127.0.0.1:8888');
+        }
 
         $verbose = ''; // set later...
         if( $debugMode ) {
@@ -760,4 +786,47 @@ FOLDER;
     public function getLastHttpResponseText() {
         return $this->lastHttpResponseText;
     }
+
+    /**
+     * Will force cURL requests to use the proxy.  Can be useful to debug requests and responses
+     * using Fiddler2 or WireShark.
+     * curl_setopt($ch, CURLOPT_PROXY, '127.0.0.1:8888'); // Use with Fiddler to debug
+     * @param $proxyServer - example for fiddler2 default: '127.0.0.1:8888'
+     */
+    public function setProxyServer($proxyServer)
+    {
+        $this->proxyServer = $proxyServer;
+    }
+
+    /**
+     * Merges the two arrays and generates the flat xml payload
+     * @param $rootTag
+     * @param $reqParams
+     * @param $optParams
+     * @return mixed
+     */
+    private function merge_and_xml_encode($rootTag, $reqParams, $optParams ) {
+        $merged = array_merge($reqParams,$optParams);
+        return $this->xml_encode($rootTag,$merged);
+    }
+
+    /**
+     * Kinda similar to json_encode in that it takes a php array and creates a flat xml
+     * object.  This will only work on simple flat arrays (no nested arrays).
+     * @param $rootTag
+     * @param $tagArray
+     * @return string
+     */
+    private function xml_encode($rootTag, $tagArray) {
+        $xml_doc = new DomDocument('1.0');
+        $root_element = $xml_doc->appendChild($xml_doc->createElement($rootTag));
+
+        foreach ($tagArray as $key => $value) {
+            $the_tag = $root_element->appendChild($xml_doc->createElement($key));
+            $the_tag->appendChild($xml_doc->createTextNode($value));
+        }
+        return $xml_doc->saveXML();
+    }
+
+
 }

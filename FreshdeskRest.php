@@ -160,8 +160,8 @@ SOLN;
 
     public function getCategoryId( $category ) {
 
-        if( !empty($this->categoryIdCache[$category]) ) {
-            return $this->categoryIdCache[$category];
+        if( !empty($this->categoryIdCache["$category"]) ) {
+            return $this->categoryIdCache["$category"];
         }
 
         $xml = $this->restCall( "/solution/categories.xml", "GET");
@@ -175,7 +175,7 @@ SOLN;
         }
         else {
             print "Added '$category' to category cache: $theId\n";
-            $this->categoryIdCache[$category] = $theId; // add to cache
+            $this->categoryIdCache["$category"] = $theId; // add to cache
         }
 
         //print "Category ID: " . $theId;
@@ -187,20 +187,118 @@ SOLN;
      */
     public function getCategoryNames() {
 
-        $xml = $this->restCall( "/solution/categories.xml", "GET");
+        $arr = array();
+        try {
+            $xml = $this->restCall( "/solution/categories.xml", "GET",'',false);
+            $xml = simplexml_load_string($xml);
+            $xpathResult = $xml->xpath('solution-category/name');
+
+            foreach( $xpathResult as $cat_name) {
+                $arr[] = $cat_name;
+            }
+
+            //print count($arr) . " categories found";
+        }
+        catch(Exception $ex) {
+            // We return an empty array...
+        }
+        return $arr;
+    }
+
+    /**
+     * @param $category is the name of the category (not the id)
+     * @return array of each all the folders in the specified category
+     */
+    public function getFolderNames($category) {
+
+        $categoryId = $this->getCategoryId($category);
+
+        $xml = $this->restCall( "/solution/categories/$categoryId.xml", "GET");
+
+        //print $xml;
 
         $xml = simplexml_load_string($xml);
-        $xpathResult = $xml->xpath('solution-category/name');
+        $xpathResult = $xml->xpath('folders/solution-folder/name');
 
         $arr = array();
-        foreach( $xpathResult as $cat_name) {
-            $arr[] = $cat_name;
+        foreach( $xpathResult as $fol_name) {
+            $arr[] = $fol_name;
         }
 
-        //print count($arr) . " categories found";
+        //print count($arr) . " folders found";
 
         return $arr;
     }
+
+    /**\
+     * Returns an array of the articles titles in the given folder
+     * @param $category This is the name not the id
+     * @param $folder This is the name not the id
+     * @return array
+     */
+    public function getArticleNames($category, $folder) {
+        $categoryId = $this->getCategoryId($category);
+        $folderId = $this->getFolderId($category,$folder);
+
+        $xml = $this->restCall( "/solution/categories/$categoryId/folders/$folderId.xml", "GET");
+
+        //print $xml;
+
+        $xml = simplexml_load_string($xml);
+        $xpathResult = $xml->xpath('articles/solution-article/title');
+
+        $arr = array();
+        foreach( $xpathResult as $fol_name) {
+            $arr[] = $fol_name;
+        }
+
+        //print count($arr) . " articles found";
+
+        return $arr;
+    }
+
+    function getArticleRawXml($category, $folder, $article ) {
+        $categoryId = $this->getCategoryId($category);
+        $folderId = $this->getFolderId($category,$folder);
+        $articleId = $this->getArticleId($category,$folder, $article);
+
+        $xml = $this->restCall( "/solution/categories/$categoryId/folders/$folderId/articles/$articleId.xml", "GET");
+        return $xml;
+    }
+
+    function getArticleRawJson($category, $folder, $article ) {
+        $categoryId = $this->getCategoryId($category);
+        $folderId = $this->getFolderId($category,$folder);
+        $articleId = $this->getArticleId($category,$folder, $article);
+
+        $xml = $this->restCall( "/solution/categories/$categoryId/folders/$folderId/articles/$articleId.json", "GET");
+        return $xml;
+    }
+
+    function getArticle($category, $folder, $article ) {
+        $json = $this->getArticleRawJson($category,$folder,$article);
+        $article = json_decode($json,true);
+        return $article['article'];
+    }
+
+    public static function convertArticleToSolr($article, $category, $source ) {
+        $xml = "<add><doc>\n";
+        $xml .= "<field name='id'>" . $article['folder']['id'] . $article['id'] . "</field>\n";
+        $xml .= "<field name='pagetitle'>" . $article['title'] . "</field>\n";
+        $xml .= "<field name='wikitext'>" . $article['desc_un_html'] . "</field>\n";
+        $xml .= "<field name='resourcename'>" . $source . "</field>\n";
+        $xml .= "<field name='category'>" . $category . "</field>\n";
+        $xml .= "<field name='includes'>" .    $article['folder']['name'] . "</field>\n";
+        $xml .= "<field name='dbkey'>" . "NOT_A_WIKI" . "</field>\n";
+        $xml .= "<field name='namespace'>0</field>\n";
+        print_r($article);
+        $xml .= "<field name='url'>" . "/support/solutions/articles/" . $article['id'] . "</field>\n";
+        $xml .= "</doc></add>\n";
+
+        return $xml;
+    }
+
+
 
     public function doesCategoryExist( $category ) {
         return $this->getCategoryId($category) != FALSE;
@@ -304,10 +402,21 @@ FOLDER;
      * @param $topicId
      * @return string - response which will be null... the HTTP Error Code for this method is also not 200.
      */
-    public function monitorTopicById($categoryId, $forumId, $topicId )
-    {
-        return $this->restCall("/categories/$categoryId/forums/$forumId/topics/$topicId/monitorship.xml", "POST", '', false);
+    public function setMonitorStatusForTopic( $topicId, $userId, $status ) {
+        return $this->restCall("/support/discussions/topics/$topicId/monitor.json?user_id=$userId&status=$status", "PUT", '', false);
     }
+
+    public function isTopicMonitored($topicId, $userId) {
+        $json =  $this->restCall("/support/discussions/topics/$topicId/check_monitor.json?user_id=$userId", "GET", '', false);
+        $data = json_decode($json, true);
+        return $data['monitorship']['active'];
+    }
+
+    public function getAllMonitoredTopicsAsJSON( $userId ) {
+        return $this->restCall("/support/discussions/user_monitored.json?user_id=$userId", "GET", "", false);
+    }
+
+
 
     /**
      * Useful for determining the top level category id... can't get this by looking at urls
@@ -420,12 +529,14 @@ FOLDER;
         //print $json;
         $decoded = json_decode($json,true);
 
-        return $decoded[0]['user'];
+        if( isset($decoded[0]['user']) )
+            return $decoded[0]['user'];
+        return null;
     }
 
     public function getUserId($email) {
         $temp = $this->getUser($email);
-        return $temp['id'];
+        return ($temp != null ? $temp['id'] : null);
     }
 
     public function getUserRole($email) {
@@ -515,7 +626,7 @@ FOLDER;
             "customer-id" => $customerId
         );
         $payload = $this->merge_and_xml_encode("user", $reqParams,$optParams);
-        print "\n\njson payload... " . $payload . "\n";
+        //print "\n\njson payload... " . $payload . "\n";
 
         $json = $this->restCall("/contacts.json", "POST", $payload, false);
         $decoded = json_decode($json,true);
@@ -531,12 +642,14 @@ FOLDER;
      *       or else they'll get cleared on save. (June 10, 2013)
      * @param $user is an array like the one your get from getUser(..), it MUST have an id, name, customer_id, and user_role set.
      * @param $imagePath
+     * @param $userRole is the role to set, either ROLE_VIEWCOMPANIES or ROLE_VIEWTHEIRS, user_role isn't part of User object returned from freshdesk
      * @param bool $debugMode
      * @return mixed
      */
-    public function uploadAvatarForUser($user, $imagePath, $debugMode=false) {
+    public function uploadAvatarForUser($user, $imagePath, $userRole=FreshdeskRest::ROLE_VIEWCOMPANIES, $debugMode=false) {
+        //error_log("USER IN UPLOAD: " . print_r($user,true) );
         $userId = $user['id'];
-        $userRole = $user['user_role'];
+        //$userRole = $user['user_role']; // For whatever reason, user_role isn't provided in getUser...
         $companyId = $user['customer_id'];
 
         $urlMinusDomain = "/contacts/$userId.json";
@@ -553,9 +666,9 @@ FOLDER;
         $post = array(
 //            "user[name]" => $name,
 //            "user[email]" => $email,
-            "user[customer_id]" => $companyId,
-            "user[user_role]" => $userRole,
-            "user[avatar_attributes[content]]"=>"@$imagePath;type=image/png",  // Note: tested with jpg and it works...
+              "user[customer_id]" => $companyId,
+              "user[user_role]" => $userRole,
+              "user[avatar_attributes[content]]"=>"@$imagePath;type=image/png",  // Note: tested with jpg and it works...
         );
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
         if( !empty($this->proxyServer) ) {
@@ -719,13 +832,13 @@ FOLDER;
             curl_setopt ($ch, CURLOPT_POST, true);
             curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
         }
-        else if( $method == "PUT" ) {
+		else if( $method == "PUT" ) {
             curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "PUT" );
             curl_setopt ($ch, CURLOPT_POSTFIELDS, $postData);
         }
-        else if( $method == "DELETE" ) {
-            curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" ); // UNTESTED!
-        }
+		else if( $method == "DELETE" ) {
+			curl_setopt( $ch, CURLOPT_CUSTOMREQUEST, "DELETE" ); // UNTESTED!
+		}
         else {
             curl_setopt ($ch, CURLOPT_POST, false);
         }
@@ -763,6 +876,11 @@ FOLDER;
         //curl_close($http);
         if( !preg_match( '/2\d\d/', $http_status ) ) {
             //print "ERROR: HTTP Status Code == " . $http_status . " (302 also isn't an error)\n";
+        }
+
+
+        if( $httpResponse == "You have exceeded the limit of requests per hour" ) {
+            error_log("ERROR: Rate limit exceeded.");
         }
 
         // print "\n\nREST RESPONSE: " . $httpResponse . "\n\n";

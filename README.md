@@ -1,7 +1,7 @@
 # FreshDesk.com PHP API Wrapper
 
 Originally wrote this tool to import all of my KB articles from SugarCRM Knowledgebase.
-So, it originally was just methods creating solutions.  It's since been expanded to support user creation, company creation, and even avatar creation!
+So, it originally was just methods creating for creating solutions.  It's since been expanded to support user creation, company creation, topic monitoring, and even avatar creation!
 This api wrapper also serves as a good reference as it uses several undocumented API methods / features.
 
 
@@ -22,6 +22,9 @@ The avatar will consist of the customers initials + a color bar which is common 
 
 ![Avatar Creation](http://www.blakerobertson.com/storage/post-images/FD_BeforeAfter.png?__SQUARESPACE_CACHEVERSION=1371112734051)
 
+### Topic Monitoring
+1. Methods exist to subscribe users to topics and see which topics they subscribe to.
+
 
 ## Ways To Improve
 1. Error handling is ok, but could be improved.
@@ -40,5 +43,8 @@ $fd->setCreateStructureMode('true'); // will create categories and folders if th
 
 $fd->createOrUpdateArticle("TEST CATEGORY", "Test_Folder", "Test Article Title", "The <u>HTML</u> of your body goes here!<P>Paragraph 2</P>");
 ```
+
+## Contributing
+I accept pull requests and welcome code critiques.
 
 ![gitimg](https://gitimg.com/blak3r/freshdesk-solutions/README/track)

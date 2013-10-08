@@ -130,24 +130,44 @@ class FreshdeskRest {
 
     
     /**
-     * Returns "all" the tickets... open tickets for the API credentials used
+     * Returns all the tickets
+     * @params $page
      * @return bool FALSE if it doesn't exist, the id otherwise.
      */
-    public function getAllTickets() {
-        $xml = $this->restCall("/helpdesk/tickets.json", "GET");
+    public function getAllTickets($page) {
+        $json = $this->restCall("/helpdesk/tickets.json?filter_name=all_tickets&page=$page", "GET");
 
         if( empty($json) ) {
             return FALSE;
         }
 
 		$json = json_decode($json);
-        return $json;
+		return $json;
+    }
+    
+    
+    /**
+     * Returns tickets for a specific view
+     * @params $viewId
+     * @params $page
+     * @return bool FALSE if it doesn't exist, the id otherwise.
+     */
+    public function getTicketView($viewId, $page) {
+        $json = $this->restCall("/helpdesk/tickets/view/$viewId?format=json&page=$page", "GET");
+
+        if( empty($json) ) {
+            return FALSE;
+        }
+
+		$json = json_decode($json);
+		return $json;
     }
 
 
     /**
-     * Returns the article ID, this method takes in the IDs for category and folder rather then the names.
-     * @return bool FALSE if it doesn't exist, the id otherwise.
+     * Returns the Ticket, this method takes in the IDs for a ticket.
+     * @param $ticketId
+     * @return bool FALSE if it doesn't exist, the object otherwise.
      */
     public function getSingleTicket($ticketId) {
         $json = $this->restCall("/helpdesk/tickets/$ticketId.json", "GET");
@@ -174,7 +194,7 @@ class FreshdeskRest {
         }
 
 		$json = json_decode($json);
-        return $json;
+		return $json;
     }
     
 }

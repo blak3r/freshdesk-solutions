@@ -127,12 +127,28 @@ class FreshdeskRest {
     {
         $this->proxyServer = $proxyServer;
     }
+    
+    
+    /**
+     * Returns all the open tickets of the API user's credentials used for the request
+     * @return bool FALSE if it doesn't exist, the object otherwise.
+     */
+    public function getApiUserTickets() {
+        $json = $this->restCall("/helpdesk/tickets.json", "GET");
 
+        if( empty($json) ) {
+            return FALSE;
+        }
+
+		$json = json_decode($json);
+		return $json;
+    }
+   
     
     /**
      * Returns all the tickets
      * @params $page
-     * @return bool FALSE if it doesn't exist, the id otherwise.
+     * @return bool FALSE if it doesn't exist, the object otherwise.
      */
     public function getAllTickets($page) {
         $json = $this->restCall("/helpdesk/tickets.json?filter_name=all_tickets&page=$page", "GET");
@@ -147,24 +163,6 @@ class FreshdeskRest {
     
     
     /**
-     * Returns tickets for a specific view
-     * @params $viewId
-     * @params $page
-     * @return bool FALSE if it doesn't exist, the id otherwise.
-     */
-    public function getTicketView($viewId, $page) {
-        $json = $this->restCall("/helpdesk/tickets/view/$viewId?format=json&page=$page", "GET");
-
-        if( empty($json) ) {
-            return FALSE;
-        }
-
-		$json = json_decode($json);
-		return $json;
-    }
-
-
-    /**
      * Returns the Ticket, this method takes in the IDs for a ticket.
      * @param $ticketId
      * @return bool FALSE if it doesn't exist, the object otherwise.
@@ -178,6 +176,57 @@ class FreshdeskRest {
 
 		$json = json_decode($json);
         return $json;
+    }
+    
+    
+    /**
+     * Returns all tickets from the user specified by email address
+     * @param $email 
+     * @return bool FALSE if it doesn't exist, the object otherwise.
+     */
+    public function getUserTickets($email) {
+        $json = $this->restCall("/helpdesk/tickets/user_ticket.json?email=$email", "GET");
+        
+        if( empty($json) ) {
+            return FALSE;
+        }
+
+		$json = json_decode($json);
+		return $json;
+    }
+    
+    
+    /**
+     * Returns tickets for a specific view
+     * @params $viewId
+     * @params $page
+     * @return bool FALSE if it doesn't exist, the object otherwise.
+     */
+    public function getTicketView($viewId, $page) {
+        $json = $this->restCall("/helpdesk/tickets/view/$viewId?format=json&page=$page", "GET");
+
+        if( empty($json) ) {
+            return FALSE;
+        }
+
+		$json = json_decode($json);
+		return $json;
+    }
+    
+    
+    /**
+     * Returns the fields available to helpdesk tickets
+     * @return bool FALSE if it doesn't exist, the object otherwise.
+     */
+    public function getTicketFields() {
+        $json = $this->restCall("/ticket_fields.json", "GET");
+
+        if( empty($json) ) {
+            return FALSE;
+        }
+
+		$json = json_decode($json);
+		return $json;
     }
 
 
@@ -196,5 +245,5 @@ class FreshdeskRest {
 		$json = json_decode($json);
 		return $json;
     }
-    
+     
 }
